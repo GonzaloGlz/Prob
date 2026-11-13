@@ -4,14 +4,14 @@ import streamlit as st
 from updater import conn, LEAGUES, run_all
 from model import predict, analyze_with_ai  # <-- Importamos la función IA
 
-st.set_page_config(page_title="Probabilidades Deportivas", page_icon="⚽", layout="wide")
-st.title("⚽ Probabilidades y Estadísticas Deportivas")
+st.set_page_config(page_title="Probabilidades Deportivas", page_icon="", layout="wide")
+st.title(" Probabilidades y Estadísticas ")
 st.caption("Datos multi-fuente + Análisis con Inteligencia Artificial.")
 
-ALL = "🌎 Todas las ligas"
+ALL = " Todas las ligas"
 sel_liga = st.sidebar.selectbox("Liga", [ALL] + sorted(list(LEAGUES.keys())))
 
-if st.sidebar.button("🔄 Actualizar datos (3 APIs)"):
+if st.sidebar.button(" Actualizar datos (3 APIs)"):
     with st.spinner("Descargando datos..."):
         run_all(log=lambda m: None)
     st.sidebar.success("¡Listo!")
@@ -63,10 +63,10 @@ if sel:
             if p.get("away_logo"): st.image(p["away_logo"], width=100)
 
         # --- PESTAÑAS: MATEMÁTICAS VS IA ---
-        tab1, tab2 = st.tabs(["📊 Probabilidades Matemáticas", "🤖 Análisis de la IA"])
+        tab1, tab2 = st.tabs([" Probabilidades Matemáticas", "🤖 Análisis de la IA"])
         
         with tab1:
-            st.write("### 🎯 Probabilidades (Modelo Poisson)")
+            st.write("###  Probabilidades (Modelo Poisson)")
             c1, c2, c3 = st.columns(3)
             c1.metric("Gana Local", f"{p['markets'].get('Gana local', 0)*100:.1f}%")
             c2.metric("Empate", f"{p['markets'].get('Empate', 0)*100:.1f}%")
@@ -79,7 +79,7 @@ if sel:
                 "Córners > 9.5": p['markets'].get('Más de 9.5 córners', 0)
             }))
 
-            st.write("### 📊 Comparativa de Promedios")
+            st.write("###  Comparativa de Promedios")
             h, a = p["h_stats"], p["a_stats"]
             dict_stats = {
                 "corners": "Córners", "shots": "Tiros Totales", "shots_on_target": "Tiros a Puerta",
@@ -104,7 +104,7 @@ if sel:
                 st.info("No hay estadísticas detalladas disponibles.")
 
         with tab2:
-            st.write("### 🤖 Análisis Generado por IA")
+            st.write("### Análisis Generado por IA")
             st.caption("Basado en el historial Head-to-Head y las estadísticas promedio.")
             with st.spinner("La IA está analizando el partido..."):
                 ai_analysis = analyze_with_ai(db, liga, local, visita, p["h_stats"], p["a_stats"], p["markets"])

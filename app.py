@@ -4,9 +4,9 @@ import streamlit as st
 from updater import conn, LEAGUES, run_all
 from model import predict, analyze_with_ai  # <-- Importamos la función IA
 
-st.set_page_config(page_title="Probabilidades Deportivas", page_icon="", layout="wide")
+st.set_page_config(page_title="PROB", page_icon="", layout="wide")
 st.title(" Probabilidades y Estadísticas ")
-st.caption("Predicciones segun el Ing Gonzaloy y la IA")
+st.caption("Predicciones segun el Ing Gonzalo y la IA")
 
 ALL = " Todas las ligas"
 sel_liga = st.sidebar.selectbox("Liga", [ALL] + sorted(list(LEAGUES.keys())))

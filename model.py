@@ -67,11 +67,13 @@ def predict_soccer(db, league, home, away):
     mk = {"Gana local": p_h / s, "Empate": p_d / s, "Gana visita": p_a / s}
     tot = lh + la
     for line in (1.5, 2.5, 3.5): mk[f"Más de {line} goles"] = p_over_poisson(tot, line)
+    
     h_stats = get_team_stats(db, league, home)
     a_stats = get_team_stats(db, league, away)
     if "corners" in h_stats and "corners" in a_stats:
         total_c = h_stats["corners"] + a_stats["corners"]
         for line in (8.5, 9.5, 10.5): mk[f"Más de {line} córners"] = p_over_poisson(total_c, line)
+        
     return {"markets": mk, "expected": {"Goles esperados": f"{lh:.2f} - {la:.2f}"}, "h_stats": h_stats, "a_stats": a_stats, "home_logo": get_logo(db, home), "away_logo": get_logo(db, away)}
 
 # ===== MODELO PARA OTROS DEPORTES (NBA, NFL, MLB, NHL) =====
@@ -97,18 +99,15 @@ def predict_generic(db, league, sport, home, away):
     exp_a = (a_for + h_against) / 2
     diff = exp_h - exp_a
 
-    # Desviación estándar según el deporte
     sd = 13.5 if sport == "football" else 10.0 if sport == "basketball" else 1.5 if sport == "baseball" else 2.0
-    
     p_h = 0.5 * (1 + math.erf(diff / (sd * math.sqrt(2))))
     p_a = 1 - p_h
-    if sport in ["basketball", "football"]: p_d = 0.0 # No hay empates
-    else: p_d = 0.05 # Mínimo para béisbol/hockey
+    if sport in ["basketball", "football"]: p_d = 0.0
+    else: p_d = 0.05
 
     mk = {"Gana local": p_h, "Empate": p_d, "Gana visita": p_a}
     tot = exp_h + exp_a
     
-    # Líneas de Over/Under adaptadas al deporte
     if sport == "football": lines = [35.5, 40.5, 45.5, 50.5, 55.5]
     elif sport == "basketball": lines = [200.5, 210.5, 220.5, 230.5, 240.5]
     elif sport == "baseball": lines = [6.5, 7.5, 8.5, 9.5, 10.5]
@@ -122,19 +121,12 @@ def predict_generic(db, league, sport, home, away):
 
 # ===== MODELO PARA TENIS / MMA =====
 def predict_individual(db, league, sport, home, away):
-    # Para tenis/MMA, usamos el ranking o el historial directo
     h2h = db.execute("""SELECT home, away, home_score, away_score FROM matches 
         WHERE league=? AND state='post' AND ((home=? AND away=?) OR (home=? AND away=?))""",
         (league, home, away, away, home)).fetchall()
-    
     h_wins = sum(1 for r in h2h if (r["home"] == home and r["home_score"] > r["away_score"]) or (r["away"] == home and r["away_score"] > r["home_score"]))
     a_wins = len(h2h) - h_wins
-
-    if len(h2h) == 0:
-        p_h = 0.50
-    else:
-        p_h = (h_wins + 1) / (len(h2h) + 2) # Suavizado de Laplace
-
+    p_h = (h_wins + 1) / (len(h2h) + 2) if len(h2h) > 0 else 0.50
     p_a = 1 - p_h
     mk = {"Gana local": p_h, "Empate": 0.0, "Gana visita": p_a}
     return {"markets": mk, "expected": {"Ganador": "Basado en H2H"}, "h_stats": {}, "a_stats": {}, "home_logo": get_logo(db, home), "away_logo": get_logo(db, away)}
@@ -165,10 +157,16 @@ def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=
         else: pick_team, pick_prob, pick_market = m["away"], prob_a, "Gana visita"
 
         if min_prob <= pick_prob <= max_prob:
+            # Extraer datos de córners y xG para mostrarlos en la tabla
+            h_corners = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
+            a_corners = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
+            xg_text = p["expected"].get("Goles esperados", p["expected"].get("Puntos esperados", "-"))
+
             all_picks.append({
                 "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
                 "market": pick_market, "prob": pick_prob, "match_id": m["id"],
-                "ganador": pick_team, "prob_ganador": f"{pick_prob*100:.1f}%"
+                "ganador": pick_team, "prob_ganador": f"{pick_prob*100:.1f}%",
+                "xg": xg_text, "corners": f"{h_corners} - {a_corners}"
             })
 
     if not all_picks: return []
@@ -221,10 +219,12 @@ def generate_parlays_ai(db, leagues, sport, min_prob=0.60, max_prob=0.95, min_le
         else: pick_team, pick_prob, pick_market = m["away"], prob_a, "Gana visita"
 
         if min_prob <= pick_prob <= max_prob:
+            h_c = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
+            a_c = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
             candidatos.append({
                 "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
                 "equipo_favorito": pick_team, "mercado": pick_market, "prob": round(pick_prob * 100, 1),
-                "marcador_esperado": p["expected"]
+                "marcador_esperado": p["expected"], "corners_promedio": f"Local: {h_c}, Visita: {a_c}"
             })
     if len(candidatos) < min_legs: return []
 
@@ -238,7 +238,7 @@ PARTIDOS DISPONIBLES:
 TAREA:
 1. Elige {min_legs} a {max_legs} equipos que GANARÁN.
 2. {instruccion_liga}
-3. Justifica cada pick en 1-2 líneas.
+3. Justifica cada pick en 1-2 líneas mencionando datos concretos (córners o marcador esperado).
 
 RESPONDE EXACTAMENTE EN ESTE FORMATO JSON:
 {{

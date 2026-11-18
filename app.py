@@ -5,40 +5,28 @@ from updater import conn, LEAGUES, run_all
 from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai
 
 st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
-st.title("Parleysitos")
-st.caption("")
+st.title(" Parleysitos")
+st.caption("Predicciones y análisis multi-deporte")
 
-# Diccionario para mostrar nombres bonitos en el selector
 DEPORTES_NOMBRES = {
-    "soccer": " Fútbol",
-    "football": " Fútbol Americano",
-    "basketball": " Básquetbol",
-    "baseball": " Béisbol",
-    "hockey": " Hockey",
-    "tennis": " Tenis",
-    "mma": " UFC / MMA"
+    "soccer": "⚽ Fútbol",
+    "football": "🏈 Fútbol Americano",
+    "basketball": "🏀 Básquetbol",
+    "baseball": "⚾ Béisbol",
+    "hockey": "🏒 Hockey",
+    "tennis": "🎾 Tenis",
+    "mma": "🥊 UFC / MMA"
 }
 
-# Función segura para obtener el deporte (por si el usuario subió un updater.py viejo)
 def get_sport(league_data):
-    try:
-        return league_data[3]  # Intenta leer el 4to elemento
-    except IndexError:
-        return "soccer"        # Si no existe, asume fútbol
+    try: return league_data[3]
+    except IndexError: return "soccer"
 
-deportes_set = set(get_sport(v) for v in LEAGUES.values())
-deportes = sorted(list(deportes_set))
+deportes = sorted(list(set(get_sport(v) for v in LEAGUES.values())))
+sel_deporte = st.sidebar.selectbox("Deporte", deportes, format_func=lambda x: DEPORTES_NOMBRES.get(x, x.capitalize()))
 
-sel_deporte_raw = st.sidebar.selectbox(
-    "Deporte", 
-    deportes, 
-    format_func=lambda x: DEPORTES_NOMBRES.get(x, x.capitalize())
-)
-sel_deporte = sel_deporte_raw
-
-# Filtrar ligas basado en el deporte seleccionado
 ligas_disponibles = [k for k, v in LEAGUES.items() if get_sport(v) == sel_deporte]
-ALL = " Todas las ligas"
+ALL = "Todas las ligas"
 sel_liga = st.sidebar.selectbox("Liga", [ALL] + sorted(ligas_disponibles))
 
 if st.sidebar.button(" Actualizar datos"):
@@ -77,7 +65,16 @@ with tab_parley:
                 prob_pct = pl["combined_prob"] * 100
                 color = "🟢" if prob_pct >= 35 else "🟡" if prob_pct >= 20 else "🔴"
                 with st.expander(f"{color} Parley #{i} · {pl['n_legs']} picks · Prob: {prob_pct:.1f}%", expanded=(i == 1)):
-                    rows = [{"Partido": leg["match"], "Liga": leg["league"], "Mercado": leg["market"], "Prob. Pick": f"{leg['prob']*100:.1f}%", "Favorito a Ganar": f"{leg['ganador']} ({leg['prob_ganador']})"} for leg in pl["legs"]]
+                    # TABLA ACTUALIZADA CON CÓRNERS Y xG
+                    rows = [{
+                        "Partido": leg["match"], 
+                        "Liga": leg["league"], 
+                        "Mercado": leg["market"], 
+                        "Prob. Pick": f"{leg['prob']*100:.1f}%", 
+                        "Favorito": f"{leg['ganador']} ({leg['prob_ganador']})",
+                        "Córners Prom.": leg["corners"],
+                        "xG / Pts.": leg["xg"]
+                    } for leg in pl["legs"]]
                     st.table(pd.DataFrame(rows))
 
     with sub_ai:
@@ -87,9 +84,15 @@ with tab_parley:
             for res in ai_parlays:
                 if "error" in res: st.error(res["error"])
                 else:
-                    st.markdown(f"###  Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
+                    st.markdown(f"### 🤖 Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
                     if res.get("veredicto"): st.info(res["veredicto"])
-                    rows = [{"Partido": pk["partido"], "Mercado": pk["mercado"], "Prob. Pick": f"{pk['prob']}%", "Favorito": pk.get("ganador", "—"), "Razón": pk.get("razon", "")} for pk in res["legs"]]
+                    rows = [{
+                        "Partido": pk["partido"], 
+                        "Mercado": pk["mercado"], 
+                        "Prob.": f"{pk['prob']}%", 
+                        "Favorito": pk.get("ganador", "—"), 
+                        "Razón": pk.get("razon", "")
+                    } for pk in res["legs"]]
                     st.table(pd.DataFrame(rows))
 
 with tab_partidos:
@@ -138,7 +141,7 @@ with tab_analisis:
                     st.table(pd.DataFrame(comp).set_index("Estadística"))
             
             with t2:
-                if st.button("Generar análisis IA", key=f"ai_{m['id']}"):
+                if st.button(" Generar análisis IA", key=f"ai_{m['id']}"):
                     with st.spinner("La IA está analizando..."):
                         txt = analyze_with_ai(db, m["league"], m["home"], m["away"], p["h_stats"], p["a_stats"], p["markets"])
                     st.info(txt)

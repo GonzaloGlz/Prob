@@ -11,20 +11,30 @@ API_FOOTBALL_KEY = "bee4cbe52adce1abb2947c78b26df2f6"
 API_HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 API_BASE = "https://v3.football.api-sports.io"
 
-# Formato: "Nombre en App": (slug_ESPN, ID_Sofascore, ID_API-Football)
+# Formato: "Nombre en App": (slug_ESPN, ID_Sofascore, ID_API-Football, DEPORTE)
 LEAGUES = {
-    "Liga MX": ("mex.1", 116, 262),
-    "MLS": ("usa.1", 242, 253),
-    "Premier League": ("eng.1", 17, 39),
-    "La Liga": ("esp.1", 8, 140),
-    "Serie A": ("ita.1", 23, 135),
-    "Bundesliga": ("ger.1", 35, 78),
-    "Ligue 1": ("fra.1", 34, 61),
-    "Champions League": ("uefa.champions", 7, 2),
-    "Europa League": ("uefa.europa", 14, 3),
-    "UEFA Nations League": ("uefa.nations", 2014, 5),
-    "Brasileirão": ("bra.1", 325, 71),
-    "Liga Profesional (Argentina)": ("arg.1", 406, 128),
+    # --- FÚTBOL ---
+    "Liga MX": ("mex.1", 116, 262, "soccer"),
+    "MLS": ("usa.1", 242, 253, "soccer"),
+    "Premier League": ("eng.1", 17, 39, "soccer"),
+    "La Liga": ("esp.1", 8, 140, "soccer"),
+    "Serie A": ("ita.1", 23, 135, "soccer"),
+    "Bundesliga": ("ger.1", 35, 78, "soccer"),
+    "Ligue 1": ("fra.1", 34, 61, "soccer"),
+    "Champions League": ("uefa.champions", 7, 2, "soccer"),
+    "Europa League": ("uefa.europa", 14, 3, "soccer"),
+    "Brasileirão": ("bra.1", 325, 71, "soccer"),
+    # --- OTROS DEPORTES ---
+    "NFL": ("nfl", None, None, "football"),
+    "NCAA Football": ("college-football", None, None, "football"),
+    "NBA": ("nba", None, None, "basketball"),
+    "WNBA": ("wnba", None, None, "basketball"),
+    "NCAA Basketball": ("mens-college-basketball", None, None, "basketball"),
+    "MLB": ("mlb", None, None, "baseball"),
+    "NHL": ("nhl", None, None, "hockey"),
+    "Tenis (ATP)": ("atp", None, None, "tennis"),
+    "Tenis (WTA)": ("wta", None, None, "tennis"),
+    "UFC / MMA": ("ufc", None, None, "mma"),
 }
 
 def conn():
@@ -34,8 +44,6 @@ def conn():
         id TEXT PRIMARY KEY, league TEXT, sport TEXT, date TEXT, state TEXT,
         home TEXT, away TEXT, home_score REAL, away_score REAL,
         source TEXT, stats_done INTEGER DEFAULT 0)""")
-    
-    # Auto-reparación de columnas
     cols = [col[1] for col in c.execute("PRAGMA table_info(matches)").fetchall()]
     if "source" not in cols: c.execute("ALTER TABLE matches ADD COLUMN source TEXT")
     if "stats_done" not in cols: c.execute("ALTER TABLE matches ADD COLUMN stats_done INTEGER DEFAULT 0")
@@ -56,13 +64,15 @@ def _to_num(x):
     try: return float(str(x).replace("%", "").strip())
     except: return None
 
-# ===== 1. FUENTE: ESPN =====
-def fetch_espn(db, league_name, espn_slug, log):
-    log(f"  [ESPN] Buscando {league_name}...")
+# ===== 1. FUENTE: ESPN (Todos los deportes) =====
+def fetch_espn(db, league_name, espn_slug, sport, log):
+    log(f"  [ESPN] Buscando {league_name} ({sport})...")
     current_year = datetime.now().year
     n = 0
+    
+    url = f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{espn_slug}/scoreboard"
+        
     for year in [current_year - 1, current_year]:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{espn_slug}/scoreboard"
         try:
             r = requests.get(url, params={"dates": str(year), "limit": 1000}, timeout=15)
             if r.status_code != 200: continue
@@ -79,7 +89,7 @@ def fetch_espn(db, league_name, espn_slug, log):
                 db.execute("""INSERT OR IGNORE INTO matches
                     (id, league, sport, date, state, home, away, home_score, away_score, source, stats_done)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (f"espn:{ev['id']}", league_name, "football", ev["date"], state,
+                    (f"espn:{ev['id']}", league_name, sport, ev["date"], state,
                      home["team"]["displayName"], away["team"]["displayName"],
                      _to_num(home.get("score")), _to_num(away.get("score")), "espn", 0))
                 n += 1
@@ -88,12 +98,13 @@ def fetch_espn(db, league_name, espn_slug, log):
     log(f"    -> {n} partidos encontrados.")
 
 def fetch_espn_stats(db, log):
-    rows = db.execute("SELECT id, league FROM matches WHERE source='espn' AND state='post' AND stats_done=0 LIMIT 100").fetchall()
+    # Solo para soccer
+    rows = db.execute("SELECT id, league FROM matches WHERE source='espn' AND sport='soccer' AND state='post' AND stats_done=0 LIMIT 100").fetchall()
     if not rows: return
     log(f"  [ESPN] Descargando stats de {len(rows)} partidos...")
     for r in rows:
         ev_id = r["id"].split(":")[1]
-        league_slug = next((slug for lg, (slug, _, _) in LEAGUES.items() if lg == r["league"]), None)
+        league_slug = next((slug for lg, (slug, _, _, _) in LEAGUES.items() if lg == r["league"]), None)
         if not league_slug: continue
 
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league_slug}/summary"
@@ -125,11 +136,11 @@ def fetch_espn_stats(db, log):
             db.commit()
         time.sleep(0.3)
 
-# ===== 2. FUENTE: API-FOOTBALL =====
+# ===== 2. FUENTE: API-FOOTBALL (Solo fútbol) =====
 def fetch_apif(db, league_name, apif_id, log):
+    if apif_id is None: return
     log(f"  [API-Football] Buscando {league_name}...")
     n = 0
-    # Buscar temporadas recientes
     for season in [2023, 2024, 2025]:
         url = f"{API_BASE}/fixtures"
         try:
@@ -142,7 +153,7 @@ def fetch_apif(db, league_name, apif_id, log):
                         db.execute("""INSERT OR IGNORE INTO matches
                             (id, league, sport, date, state, home, away, home_score, away_score, source, stats_done)
                             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                            (f"apif:{fid}", league_name, "football", f["fixture"]["date"],
+                            (f"apif:{fid}", league_name, "soccer", f["fixture"]["date"],
                              "post", f["teams"]["home"]["name"], f["teams"]["away"]["name"],
                              f["goals"]["home"], f["goals"]["away"], "apif", 0))
                         n += 1
@@ -186,10 +197,11 @@ def fetch_apif_stats(db, log):
                 db.execute("UPDATE matches SET stats_done=1 WHERE id=?", (r["id"],))
                 db.commit()
         except: pass
-        time.sleep(0.6) # Respetar rate limit
+        time.sleep(0.6)
 
-# ===== 3. FUENTE: SOFASCORE =====
+# ===== 3. FUENTE: SOFASCORE (Solo fútbol) =====
 def fetch_sofa(db, league_name, sofa_id, log):
+    if sofa_id is None: return
     log(f"  [Sofascore] Buscando {league_name}...")
     client = SofaScoreClient()
     try:
@@ -206,7 +218,7 @@ def fetch_sofa(db, league_name, sofa_id, log):
             db.execute("""INSERT OR IGNORE INTO matches
                 (id, league, sport, date, state, home, away, home_score, away_score, source, stats_done)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (f"sofa:{ev_id}", league_name, "football", datetime.fromtimestamp(ev["startTimestamp"], tz=timezone.utc).isoformat(), state,
+                (f"sofa:{ev_id}", league_name, "soccer", datetime.fromtimestamp(ev["startTimestamp"], tz=timezone.utc).isoformat(), state,
                  ev["homeTeam"]["name"], ev["awayTeam"]["name"],
                  ev.get("homeScore", {}).get("current"), ev.get("awayScore", {}).get("current"), "sofa", 0))
             n += 1
@@ -279,17 +291,18 @@ def enrich_logos(db, log):
 
 def run_all(log=print):
     db = conn()
-    for league, (espn_slug, sofa_id, apif_id) in LEAGUES.items():
-        fetch_espn(db, league, espn_slug, log)
-        fetch_apif(db, league, apif_id, log) # <-- Nueva fuente
-        fetch_sofa(db, league, sofa_id, log)
+    for league, (espn_slug, sofa_id, apif_id, sport) in LEAGUES.items():
+        fetch_espn(db, league, espn_slug, sport, log)
+        if sport == "soccer":
+            fetch_apif(db, league, apif_id, log)
+            fetch_sofa(db, league, sofa_id, log)
     
     fetch_espn_stats(db, log)
     fetch_apif_stats(db, log)
     fetch_sofa_stats(db, log)
     enrich_logos(db, log)
     db.close()
-    log("✅ Proceso completado. Datos de 3 APIs y logos actualizados.")
+    log("✅ Proceso completado.")
 
 if __name__ == "__main__":
     run_all()

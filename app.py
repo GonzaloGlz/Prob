@@ -4,15 +4,30 @@ import streamlit as st
 from updater import conn, LEAGUES, run_all
 from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai
 
-st.set_page_config(page_title="PROB", page_icon=":)", layout="wide")
-st.title("Parleysitos")
+st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
+st.title(" Parleysitos")
 st.caption("Predicciones y análisis multi-deporte")
 
-# Filtrar ligas por deporte
-deportes = sorted(list(set(v[3] for v in LEAGUES.values())))
-sel_deporte = st.sidebar.selectbox("Deporte", deportes)
-ligas_disponibles = [k for k, v in LEAGUES.items() if v[3] == sel_deporte]
+# Diccionario para mostrar nombres bonitos en el selector
+DEPORTES_NOMBRES = {
+    "soccer": " Fútbol",
+    "football": " Fútbol Americano",
+    "basketball": " Básquetbol",
+    "baseball": " Béisbol",
+    "hockey": " Hockey",
+    "tennis": " Tenis",
+    "mma": " UFC / MMA"
+}
 
+deportes = sorted(list(set(v[3] for v in LEAGUES.values())))
+sel_deporte_raw = st.sidebar.selectbox(
+    "Deporte", 
+    deportes, 
+    format_func=lambda x: DEPORTES_NOMBRES.get(x, x.capitalize())
+)
+sel_deporte = sel_deporte_raw
+
+ligas_disponibles = [k for k, v in LEAGUES.items() if v[3] == sel_deporte]
 ALL = " Todas las ligas"
 sel_liga = st.sidebar.selectbox("Liga", [ALL] + sorted(ligas_disponibles))
 
@@ -35,14 +50,14 @@ if not up:
 tab_parley, tab_partidos, tab_analisis = st.tabs([" Generador de Parlays", " Próximos Partidos", " Análisis Detallado"])
 
 with tab_parley:
-    st.subheader(f"Estrategias de Parley ({sel_deporte})")
+    st.subheader(f" Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
     col1, col2, col3 = st.columns(3)
     tipo_parley = col1.radio("Modalidad:", ["Mix (Diferentes ligas)", "Misma liga"], horizontal=True)
     min_prob = col2.slider("Prob. mínima por pick", 0.55, 0.85, 0.65, 0.01)
     max_legs = col3.slider("Máx. selecciones", 3, 8, 5)
     mode = "mix" if "Mix" in tipo_parley else "same"
 
-    sub_mate, sub_ai = st.tabs([" Parley Matemático", " Parley IA"])
+    sub_mate, sub_ai = st.tabs(["🎯 Parley Matemático", "🤖 Parley IA"])
 
     with sub_mate:
         parlays = generate_parlays(db, ligas_sel, sel_deporte, min_prob, 0.92, 3, max_legs, mode, 3)
@@ -113,7 +128,7 @@ with tab_analisis:
                     st.table(pd.DataFrame(comp).set_index("Estadística"))
             
             with t2:
-                if st.button("🧠 Generar análisis IA", key=f"ai_{m['id']}"):
+                if st.button(" Generar análisis IA", key=f"ai_{m['id']}"):
                     with st.spinner("La IA está analizando..."):
                         txt = analyze_with_ai(db, m["league"], m["home"], m["away"], p["h_stats"], p["a_stats"], p["markets"])
                     st.info(txt)

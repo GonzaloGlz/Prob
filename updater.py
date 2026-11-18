@@ -98,12 +98,15 @@ def fetch_espn(db, league_name, espn_slug, sport, log):
     log(f"    -> {n} partidos encontrados.")
 
 def fetch_espn_stats(db, log):
-    # Solo para soccer
     rows = db.execute("SELECT id, league FROM matches WHERE source='espn' AND sport='soccer' AND state='post' AND stats_done=0 LIMIT 100").fetchall()
     if not rows: return
     log(f"  [ESPN] Descargando stats de {len(rows)} partidos...")
     for r in rows:
-        ev_id = r["id"].split(":")[1]
+        try:
+            ev_id = r["id"].split(":")[1]
+        except IndexError:
+            continue
+            
         league_slug = next((slug for lg, (slug, _, _, _) in LEAGUES.items() if lg == r["league"]), None)
         if not league_slug: continue
 
@@ -136,7 +139,7 @@ def fetch_espn_stats(db, log):
             db.commit()
         time.sleep(0.3)
 
-# ===== 2. FUENTE: API-FOOTBALL (Solo fútbol) =====
+# ===== 2. FUENTE: API-FOOTBALL =====
 def fetch_apif(db, league_name, apif_id, log):
     if apif_id is None: return
     log(f"  [API-Football] Buscando {league_name}...")
@@ -168,7 +171,11 @@ def fetch_apif_stats(db, log):
     if not rows: return
     log(f"  [API-Football] Descargando stats de {len(rows)} partidos...")
     for r in rows:
-        fid = r["id"].split(":")[1]
+        try:
+            fid = r["id"].split(":")[1]
+        except IndexError:
+            continue
+            
         url = f"{API_BASE}/fixtures/statistics"
         try:
             res = requests.get(url, headers=API_HEADERS, params={"fixture": fid}, timeout=15)
@@ -199,7 +206,7 @@ def fetch_apif_stats(db, log):
         except: pass
         time.sleep(0.6)
 
-# ===== 3. FUENTE: SOFASCORE (Solo fútbol) =====
+# ===== 3. FUENTE: SOFASCORE (ARREGLADO) =====
 def fetch_sofa(db, league_name, sofa_id, log):
     if sofa_id is None: return
     log(f"  [Sofascore] Buscando {league_name}...")
@@ -233,7 +240,14 @@ def fetch_sofa_stats(db, log):
     log(f"  [Sofascore] Descargando stats de {len(rows)} partidos...")
     client = SofaScoreClient()
     for r in rows:
-        ev_id = int(r["id"].split(":")[1])
+        # AQUI ESTABA EL ERROR, si el id no tiene ":" fallaba
+        try:
+            ev_id = int(r["id"].split(":")[1])
+        except (IndexError, ValueError):
+            db.execute("UPDATE matches SET stats_done=1 WHERE id=?", (r["id"],))
+            db.commit()
+            continue
+
         try:
             stats = client.get_event_statistics(ev_id)
             for block in stats.get("statistics", []):

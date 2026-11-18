@@ -2,10 +2,10 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 from updater import conn, LEAGUES, run_all
-from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai
+from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai, simulate_full_markets
 
 st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
-st.title("Parleysitos")
+st.title("🎯 Parleysitos")
 st.caption("Predicciones y análisis multi-deporte")
 
 DEPORTES_NOMBRES = {
@@ -48,9 +48,8 @@ if not up:
 tab_parley, tab_partidos, tab_analisis = st.tabs(["🎲 Generador de Parlays", "📋 Próximos Partidos", "🔍 Análisis Detallado"])
 
 with tab_parley:
-    st.subheader(f" Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
+    st.subheader(f"🎲 Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
     
-    # 4 columnas para controlar todo
     col1, col2, col3, col4 = st.columns(4)
     tipo_parley = col1.radio("Modalidad:", ["Mix (Diferentes ligas)", "Misma liga"], horizontal=True)
     min_prob = col2.slider("Prob. mínima por pick", 0.50, 0.85, 0.55, 0.01)
@@ -63,7 +62,7 @@ with tab_parley:
 
     mode = "mix" if "Mix" in tipo_parley else "same"
 
-    sub_mate, sub_ai = st.tabs([" Parley Matemático", " Parley IA"])
+    sub_mate, sub_ai = st.tabs(["🎯 Parley Matemático", "🤖 Parley IA"])
 
     with sub_mate:
         parlays = generate_parlays(db, ligas_sel, sel_deporte, min_prob, 0.92, min_legs, max_legs, mode, 3)
@@ -73,6 +72,8 @@ with tab_parley:
                 prob_pct = pl["combined_prob"] * 100
                 color = "🟢" if prob_pct >= 35 else "🟡" if prob_pct >= 20 else "🔴"
                 with st.expander(f"{color} Parley #{i} · {pl['n_legs']} picks · Prob: {prob_pct:.1f}%", expanded=(i == 1)):
+                    
+                    # Mostramos la tabla base
                     rows = [{
                         "Partido": leg["match"], 
                         "Liga": leg["league"], 
@@ -84,14 +85,36 @@ with tab_parley:
                     } for leg in pl["legs"]]
                     st.table(pd.DataFrame(rows))
 
+                    # --- SIMULACIÓN DE MERCADOS ESTILO CASA DE APUESTAS ---
+                    st.markdown("### 🔗 Detalle de Mercados por Partido")
+                    
+                    for leg in pl["legs"]:
+                        local, visita = leg["match"].split(" vs ")
+                        detalle_mercados = simulate_full_markets(db, leg["league"], sel_deporte, local, visita)
+                        
+                        if detalle_mercados:
+                            with st.expander(f"📊 Mercados: {leg['match']}", expanded=False):
+                                for titulo, opciones in detalle_mercados.items():
+                                    st.markdown(f"**{titulo}**")
+                                    cols = st.columns(len(opciones))
+                                    for idx, (nombre, prob) in enumerate(opciones):
+                                        # Creamos "botones" visuales rojos (simulados)
+                                        cols[idx].markdown(
+                                            f"<div style='background-color:#e31b23; color:white; padding:10px; border-radius:5px; text-align:center; margin-bottom:5px;'>"
+                                            f"<b>{nombre}</b><br>"
+                                            f"<span style='font-size:12px;'>{prob*100:.1f}%</span>"
+                                            f"</div>", unsafe_allow_html=True
+                                        )
+                                    st.markdown("<br>", unsafe_allow_html=True)
+
     with sub_ai:
-        if st.button(" Generar Parley con IA"):
+        if st.button("🧠 Generar Parley con IA"):
             with st.spinner("La IA está analizando..."):
                 ai_parlays = generate_parlays_ai(db, ligas_sel, sel_deporte, min_prob, 0.95, min_legs, max_legs, mode)
             for res in ai_parlays:
                 if "error" in res: st.error(res["error"])
                 else:
-                    st.markdown(f"###  Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
+                    st.markdown(f"### 🤖 Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
                     if res.get("veredicto"): st.info(res["veredicto"])
                     rows = [{
                         "Partido": pk["partido"], 
@@ -129,7 +152,7 @@ with tab_analisis:
         if not p: st.warning("Faltan datos.")
         else:
             st.markdown(f"## {m['home']} vs {m['away']}")
-            t1, t2 = st.tabs([" Probabilidades", " Análisis IA"])
+            t1, t2 = st.tabs(["📊 Probabilidades", "🤖 Análisis IA"])
             
             with t1:
                 c1, c2, c3 = st.columns(3)
@@ -148,7 +171,7 @@ with tab_analisis:
                     st.table(pd.DataFrame(comp).set_index("Estadística"))
             
             with t2:
-                if st.button(" Generar análisis IA", key=f"ai_{m['id']}"):
+                if st.button("🧠 Generar análisis IA", key=f"ai_{m['id']}"):
                     with st.spinner("La IA está analizando..."):
                         txt = analyze_with_ai(db, m["league"], m["home"], m["away"], p["h_stats"], p["a_stats"], p["markets"])
                     st.info(txt)

@@ -5,7 +5,7 @@ from updater import conn, LEAGUES, run_all
 from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai
 
 st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
-st.title(" Parleysitos")
+st.title("Parleysitos")
 st.caption("Predicciones y análisis multi-deporte")
 
 DEPORTES_NOMBRES = {
@@ -26,10 +26,10 @@ deportes = sorted(list(set(get_sport(v) for v in LEAGUES.values())))
 sel_deporte = st.sidebar.selectbox("Deporte", deportes, format_func=lambda x: DEPORTES_NOMBRES.get(x, x.capitalize()))
 
 ligas_disponibles = [k for k, v in LEAGUES.items() if get_sport(v) == sel_deporte]
-ALL = "Todas las ligas"
+ALL = "🌎 Todas las ligas"
 sel_liga = st.sidebar.selectbox("Liga", [ALL] + sorted(ligas_disponibles))
 
-if st.sidebar.button(" Actualizar datos"):
+if st.sidebar.button("🔄 Actualizar datos"):
     with st.spinner("Descargando datos..."):
         run_all(log=lambda m: None)
     st.sidebar.success("¡Listo!")
@@ -45,27 +45,34 @@ if not up:
     st.warning("No hay partidos próximos para este deporte.")
     st.stop()
 
-tab_parley, tab_partidos, tab_analisis = st.tabs([" Generador de Parlays", " Próximos Partidos", " Análisis Detallado"])
+tab_parley, tab_partidos, tab_analisis = st.tabs(["🎲 Generador de Parlays", "📋 Próximos Partidos", "🔍 Análisis Detallado"])
 
 with tab_parley:
     st.subheader(f" Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
-    col1, col2, col3 = st.columns(3)
+    
+    # 4 columnas para controlar todo
+    col1, col2, col3, col4 = st.columns(4)
     tipo_parley = col1.radio("Modalidad:", ["Mix (Diferentes ligas)", "Misma liga"], horizontal=True)
-    min_prob = col2.slider("Prob. mínima por pick", 0.55, 0.85, 0.65, 0.01)
-    max_legs = col3.slider("Máx. selecciones", 3, 8, 5)
+    min_prob = col2.slider("Prob. mínima por pick", 0.50, 0.85, 0.55, 0.01)
+    min_legs = col3.slider("Mín. selecciones", 2, 5, 2)
+    max_legs = col4.slider("Máx. selecciones", 3, 8, 5)
+    
+    if min_legs > max_legs:
+        st.error("El mínimo de selecciones no puede ser mayor al máximo.")
+        st.stop()
+
     mode = "mix" if "Mix" in tipo_parley else "same"
 
     sub_mate, sub_ai = st.tabs([" Parley Matemático", " Parley IA"])
 
     with sub_mate:
-        parlays = generate_parlays(db, ligas_sel, sel_deporte, min_prob, 0.92, 3, max_legs, mode, 3)
+        parlays = generate_parlays(db, ligas_sel, sel_deporte, min_prob, 0.92, min_legs, max_legs, mode, 3)
         if not parlays: st.warning("No se encontraron suficientes picks.")
         else:
             for i, pl in enumerate(parlays, 1):
                 prob_pct = pl["combined_prob"] * 100
                 color = "🟢" if prob_pct >= 35 else "🟡" if prob_pct >= 20 else "🔴"
                 with st.expander(f"{color} Parley #{i} · {pl['n_legs']} picks · Prob: {prob_pct:.1f}%", expanded=(i == 1)):
-                    # TABLA ACTUALIZADA CON CÓRNERS Y xG
                     rows = [{
                         "Partido": leg["match"], 
                         "Liga": leg["league"], 
@@ -80,11 +87,11 @@ with tab_parley:
     with sub_ai:
         if st.button(" Generar Parley con IA"):
             with st.spinner("La IA está analizando..."):
-                ai_parlays = generate_parlays_ai(db, ligas_sel, sel_deporte, min_prob, 0.95, 3, max_legs, mode)
+                ai_parlays = generate_parlays_ai(db, ligas_sel, sel_deporte, min_prob, 0.95, min_legs, max_legs, mode)
             for res in ai_parlays:
                 if "error" in res: st.error(res["error"])
                 else:
-                    st.markdown(f"### 🤖 Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
+                    st.markdown(f"###  Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
                     if res.get("veredicto"): st.info(res["veredicto"])
                     rows = [{
                         "Partido": pk["partido"], 

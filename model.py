@@ -76,7 +76,7 @@ def predict_soccer(db, league, home, away):
         
     return {"markets": mk, "expected": {"Goles esperados": f"{lh:.2f} - {la:.2f}"}, "h_stats": h_stats, "a_stats": a_stats, "home_logo": get_logo(db, home), "away_logo": get_logo(db, away)}
 
-# ===== MODELO PARA OTROS DEPORTES (NBA, NFL, MLB, NHL) =====
+# ===== MODELO PARA OTROS DEPORTES =====
 def predict_generic(db, league, sport, home, away):
     def get_scores(team):
         rows = db.execute("""SELECT home, away, home_score, away_score FROM matches 
@@ -102,8 +102,7 @@ def predict_generic(db, league, sport, home, away):
     sd = 13.5 if sport == "football" else 10.0 if sport == "basketball" else 1.5 if sport == "baseball" else 2.0
     p_h = 0.5 * (1 + math.erf(diff / (sd * math.sqrt(2))))
     p_a = 1 - p_h
-    if sport in ["basketball", "football"]: p_d = 0.0
-    else: p_d = 0.05
+    p_d = 0.0 if sport in ["basketball", "football"] else 0.05
 
     mk = {"Gana local": p_h, "Empate": p_d, "Gana visita": p_a}
     tot = exp_h + exp_a
@@ -119,7 +118,6 @@ def predict_generic(db, league, sport, home, away):
 
     return {"markets": mk, "expected": {"Puntos esperados": f"{exp_h:.1f} - {exp_a:.1f}"}, "h_stats": {}, "a_stats": {}, "home_logo": get_logo(db, home), "away_logo": get_logo(db, away)}
 
-# ===== MODELO PARA TENIS / MMA =====
 def predict_individual(db, league, sport, home, away):
     h2h = db.execute("""SELECT home, away, home_score, away_score FROM matches 
         WHERE league=? AND state='post' AND ((home=? AND away=?) OR (home=? AND away=?))""",
@@ -137,9 +135,9 @@ def predict(db, league, sport, home, away):
     else: return predict_generic(db, league, sport, home, away)
 
 # =========================================================
-# GENERADOR DE PARLEYS (MATEMÁTICO)
+# GENERADOR DE PARLEYS (MATEMÁTICO) - CON PLAN B FORZADO
 # =========================================================
-def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=3, max_legs=8, mode="mix", top_n=3):
+def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=2, max_legs=8, mode="mix", top_n=3):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     ph = ",".join("?" * len(leagues))
     matches = db.execute(f"""SELECT * FROM matches WHERE league IN ({ph}) 
@@ -153,27 +151,34 @@ def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=
         prob_h = p["markets"].get("Gana local", 0)
         prob_a = p["markets"].get("Gana visita", 0)
         
+        # Elegimos al mejor equipo del partido (sin importar el % aún)
         if prob_h > prob_a: pick_team, pick_prob, pick_market = m["home"], prob_h, "Gana local"
         else: pick_team, pick_prob, pick_market = m["away"], prob_a, "Gana visita"
 
-        if min_prob <= pick_prob <= max_prob:
-            # Extraer datos de córners y xG para mostrarlos en la tabla
-            h_corners = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
-            a_corners = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
-            xg_text = p["expected"].get("Goles esperados", p["expected"].get("Puntos esperados", "-"))
+        h_corners = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
+        a_corners = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
+        xg_text = p["expected"].get("Goles esperados", p["expected"].get("Puntos esperados", "-"))
 
-            all_picks.append({
-                "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
-                "market": pick_market, "prob": pick_prob, "match_id": m["id"],
-                "ganador": pick_team, "prob_ganador": f"{pick_prob*100:.1f}%",
-                "xg": xg_text, "corners": f"{h_corners} - {a_corners}"
-            })
+        all_picks.append({
+            "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
+            "market": pick_market, "prob": pick_prob, "match_id": m["id"],
+            "ganador": pick_team, "prob_ganador": f"{pick_prob*100:.1f}%",
+            "xg": xg_text, "corners": f"{h_corners} - {a_corners}"
+        })
 
     if not all_picks: return []
-    all_picks.sort(key=lambda x: -x["prob"])
+
+    # Filtramos primero con la probabilidad que el usuario eligió
+    filtered_picks = [p for p in all_picks if min_prob <= p["prob"] <= max_prob]
+    
+    # PLAN B: Si no hay suficientes, tomamos los mejores del partido sin importar el mínimo
+    if len(filtered_picks) < min_legs:
+        filtered_picks = sorted(all_picks, key=lambda x: -x["prob"])
+
+    filtered_picks.sort(key=lambda x: -x["prob"])
 
     by_match = defaultdict(list)
-    for pk in all_picks: by_match[pk["match_id"]].append(pk)
+    for pk in filtered_picks: by_match[pk["match_id"]].append(pk)
     diversified = [picks[0] for picks in by_match.values()]
     diversified.sort(key=lambda x: -x["prob"])
 
@@ -203,7 +208,7 @@ def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=
 # =========================================================
 # GENERADOR DE PARLEYS (IA)
 # =========================================================
-def generate_parlays_ai(db, leagues, sport, min_prob=0.60, max_prob=0.95, min_legs=3, max_legs=6, mode="mix"):
+def generate_parlays_ai(db, leagues, sport, min_prob=0.60, max_prob=0.95, min_legs=2, max_legs=6, mode="mix"):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     ph = ",".join("?" * len(leagues))
     matches = db.execute(f"""SELECT * FROM matches WHERE league IN ({ph}) 
@@ -218,14 +223,14 @@ def generate_parlays_ai(db, leagues, sport, min_prob=0.60, max_prob=0.95, min_le
         if prob_h > prob_a: pick_team, pick_prob, pick_market = m["home"], prob_h, "Gana local"
         else: pick_team, pick_prob, pick_market = m["away"], prob_a, "Gana visita"
 
-        if min_prob <= pick_prob <= max_prob:
-            h_c = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
-            a_c = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
-            candidatos.append({
-                "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
-                "equipo_favorito": pick_team, "mercado": pick_market, "prob": round(pick_prob * 100, 1),
-                "marcador_esperado": p["expected"], "corners_promedio": f"Local: {h_c}, Visita: {a_c}"
-            })
+        # La IA recibe TODOS los partidos, incluso los parejos, para que ella decida
+        h_c = p["h_stats"].get("corners", "-") if p["h_stats"] else "-"
+        a_c = p["a_stats"].get("corners", "-") if p["a_stats"] else "-"
+        candidatos.append({
+            "match": f"{m['home']} vs {m['away']}", "league": m["league"], "date": m["date"][:16],
+            "equipo_favorito": pick_team, "mercado": pick_market, "prob": round(pick_prob * 100, 1),
+            "marcador_esperado": p["expected"], "corners_promedio": f"Local: {h_c}, Visita: {a_c}"
+        })
     if len(candidatos) < min_legs: return []
 
     contexto = json.dumps(candidatos[:40], ensure_ascii=False, indent=2)
@@ -265,9 +270,6 @@ RESPONDE EXACTAMENTE EN ESTE FORMATO JSON:
         return [{"legs": picks, "combined_prob": combinada, "n_legs": len(picks), "veredicto": data.get("veredicto", ""), "fuente": "IA"}]
     except Exception as e: return [{"error": f"Error de IA: {e}"}]
 
-# =========================================================
-# ANÁLISIS INDIVIDUAL CON IA
-# =========================================================
 def analyze_with_ai(db, league, home, away, h_stats, a_stats, mk):
     prompt = f"""
     Eres un analista deportivo experto. Analiza el siguiente partido: {home} vs {away}.

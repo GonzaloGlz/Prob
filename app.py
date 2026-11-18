@@ -2,20 +2,15 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 from updater import conn, LEAGUES, run_all
-from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai, simulate_full_markets
+from model import predict, analyze_with_ai, generate_parlays, generate_parlays_ai, simulate_full_markets, analyze_markets_with_ai
 
 st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
-st.title("🎯 Parleysitos")
-st.caption("Predicciones y análisis multi-deporte")
+st.title("Parleysitos")
+st.caption("")
 
 DEPORTES_NOMBRES = {
-    "soccer": "⚽ Fútbol",
-    "football": "🏈 Fútbol Americano",
-    "basketball": "🏀 Básquetbol",
-    "baseball": "⚾ Béisbol",
-    "hockey": "🏒 Hockey",
-    "tennis": "🎾 Tenis",
-    "mma": "🥊 UFC / MMA"
+    "soccer": "⚽ Fútbol", "football": "🏈 Fútbol Americano", "basketball": "🏀 Básquetbol",
+    "baseball": "⚾ Béisbol", "hockey": "🏒 Hockey", "tennis": "🎾 Tenis", "mma": "🥊 UFC / MMA"
 }
 
 def get_sport(league_data):
@@ -48,7 +43,7 @@ if not up:
 tab_parley, tab_partidos, tab_analisis = st.tabs(["🎲 Generador de Parlays", "📋 Próximos Partidos", "🔍 Análisis Detallado"])
 
 with tab_parley:
-    st.subheader(f"🎲 Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
+    st.subheader(f" Estrategias de Parley ({DEPORTES_NOMBRES.get(sel_deporte, sel_deporte)})")
     
     col1, col2, col3, col4 = st.columns(4)
     tipo_parley = col1.radio("Modalidad:", ["Mix (Diferentes ligas)", "Misma liga"], horizontal=True)
@@ -62,7 +57,7 @@ with tab_parley:
 
     mode = "mix" if "Mix" in tipo_parley else "same"
 
-    sub_mate, sub_ai = st.tabs(["🎯 Parley Matemático", "🤖 Parley IA"])
+    sub_mate, sub_ai = st.tabs([" Parley Matemático", " Parley IA"])
 
     with sub_mate:
         parlays = generate_parlays(db, ligas_sel, sel_deporte, min_prob, 0.92, min_legs, max_legs, mode, 3)
@@ -71,23 +66,15 @@ with tab_parley:
             for i, pl in enumerate(parlays, 1):
                 prob_pct = pl["combined_prob"] * 100
                 color = "🟢" if prob_pct >= 35 else "🟡" if prob_pct >= 20 else "🔴"
-                with st.expander(f"{color} Parley #{i} · {pl['n_legs']} picks · Prob: {prob_pct:.1f}%", expanded=(i == 1)):
-                    
-                    # Mostramos la tabla base
+                with st.expander(f"{color} Parley Mate #{i} · {pl['n_legs']} picks · Prob: {prob_pct:.1f}%", expanded=(i == 1)):
                     rows = [{
-                        "Partido": leg["match"], 
-                        "Liga": leg["league"], 
-                        "Mercado": leg["market"], 
-                        "Prob. Pick": f"{leg['prob']*100:.1f}%", 
-                        "Favorito": f"{leg['ganador']} ({leg['prob_ganador']})",
-                        "Córners Prom.": leg["corners"],
-                        "xG / Pts.": leg["xg"]
+                        "Partido": leg["match"], "Liga": leg["league"], "Mercado": leg["market"], 
+                        "Prob. Pick": f"{leg['prob']*100:.1f}%", "Favorito": f"{leg['ganador']} ({leg['prob_ganador']})",
+                        "Córners Prom.": leg["corners"], "xG / Pts.": leg["xg"]
                     } for leg in pl["legs"]]
                     st.table(pd.DataFrame(rows))
 
-                    # --- SIMULACIÓN DE MERCADOS ESTILO CASA DE APUESTAS ---
                     st.markdown("### 🔗 Detalle de Mercados por Partido")
-                    
                     for leg in pl["legs"]:
                         local, visita = leg["match"].split(" vs ")
                         detalle_mercados = simulate_full_markets(db, leg["league"], sel_deporte, local, visita)
@@ -98,32 +85,60 @@ with tab_parley:
                                     st.markdown(f"**{titulo}**")
                                     cols = st.columns(len(opciones))
                                     for idx, (nombre, prob) in enumerate(opciones):
-                                        # Creamos "botones" visuales rojos (simulados)
                                         cols[idx].markdown(
                                             f"<div style='background-color:#e31b23; color:white; padding:10px; border-radius:5px; text-align:center; margin-bottom:5px;'>"
-                                            f"<b>{nombre}</b><br>"
-                                            f"<span style='font-size:12px;'>{prob*100:.1f}%</span>"
-                                            f"</div>", unsafe_allow_html=True
+                                            f"<b>{nombre}</b><br><span style='font-size:12px;'>{prob*100:.1f}%</span></div>", 
+                                            unsafe_allow_html=True
                                         )
                                     st.markdown("<br>", unsafe_allow_html=True)
 
     with sub_ai:
-        if st.button("🧠 Generar Parley con IA"):
+        if st.button(" Generar Parley con IA"):
             with st.spinner("La IA está analizando..."):
                 ai_parlays = generate_parlays_ai(db, ligas_sel, sel_deporte, min_prob, 0.95, min_legs, max_legs, mode)
+            
             for res in ai_parlays:
                 if "error" in res: st.error(res["error"])
                 else:
-                    st.markdown(f"### 🤖 Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
+                    st.markdown(f"###  Parley IA · {res['n_legs']} picks · Prob: **{res['combined_prob']*100:.1f}%**")
                     if res.get("veredicto"): st.info(res["veredicto"])
+                    
                     rows = [{
-                        "Partido": pk["partido"], 
-                        "Mercado": pk["mercado"], 
-                        "Prob.": f"{pk['prob']}%", 
-                        "Favorito": pk.get("ganador", "—"), 
-                        "Razón": pk.get("razon", "")
+                        "Partido": pk["partido"], "Mercado": pk["mercado"], "Prob.": f"{pk['prob']}%", 
+                        "Favorito": pk.get("ganador", "—"), "Razón": pk.get("razon", "")
                     } for pk in res["legs"]]
                     st.table(pd.DataFrame(rows))
+
+                    st.markdown("### 🔗 Detalle de Mercados (Justificado por IA)")
+                    for pk in res["legs"]:
+                        match_name = pk["partido"]
+                        local, visita = match_name.split(" vs ")
+                        
+                        # Encontramos la liga y estadísticas de ese partido
+                        liga_match = next((lg for lg in ligas_sel if any(local in m["home"] and visita in m["away"] for m in up if m["league"] == lg)), sel_liga)
+                        p = predict(db, liga_match, sel_deporte, local, visita)
+                        detalle_mercados = simulate_full_markets(db, liga_match, sel_deporte, local, visita)
+                        
+                        if detalle_mercados:
+                            with st.expander(f" Mercados y Análisis: {match_name}", expanded=False):
+                                # 1. Mostramos los botones rojos
+                                for titulo, opciones in detalle_mercados.items():
+                                    st.markdown(f"**{titulo}**")
+                                    cols = st.columns(len(opciones))
+                                    for idx, (nombre, prob) in enumerate(opciones):
+                                        cols[idx].markdown(
+                                            f"<div style='background-color:#e31b23; color:white; padding:10px; border-radius:5px; text-align:center; margin-bottom:5px;'>"
+                                            f"<b>{nombre}</b><br><span style='font-size:12px;'>{prob*100:.1f}%</span></div>", 
+                                            unsafe_allow_html=True
+                                        )
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                
+                                # 2. LA IA LEE LOS MERCADOS Y DA SU VEREDICTO
+                                st.markdown("---")
+                                st.markdown(" **Veredicto de la IA para este partido:**")
+                                with st.spinner("La IA está evaluando los mercados..."):
+                                    ia_veredicto = analyze_markets_with_ai(local, visita, detalle_mercados, p["h_stats"], p["a_stats"])
+                                st.success(ia_veredicto)
 
 with tab_partidos:
     st.subheader(f"Próximos Partidos · {sel_liga}")
@@ -152,7 +167,7 @@ with tab_analisis:
         if not p: st.warning("Faltan datos.")
         else:
             st.markdown(f"## {m['home']} vs {m['away']}")
-            t1, t2 = st.tabs(["📊 Probabilidades", "🤖 Análisis IA"])
+            t1, t2 = st.tabs([" Probabilidades", " Análisis IA"])
             
             with t1:
                 c1, c2, c3 = st.columns(3)

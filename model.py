@@ -137,7 +137,7 @@ def predict(db, league, sport, home, away):
 # ===== SIMULADOR DE MERCADOS DE APUESTAS =====
 def simulate_full_markets(db, league, sport, home, away):
     if sport != "soccer":
-        return {} # Por ahora solo detallamos fútbol
+        return {} 
         
     p = predict_soccer(db, league, home, away)
     lh = p.get("lambda_home", 1.2)
@@ -146,89 +146,61 @@ def simulate_full_markets(db, league, sport, home, away):
     h_stats, a_stats = p["h_stats"], p["a_stats"]
     
     markets = {}
+    markets["Ganador (1X2)"] = [(f"Gana {home}", mk.get("Gana local", 0)), ("Empate", mk.get("Empate", 0)), (f"Gana {away}", mk.get("Gana visita", 0))]
     
-    # 1X2 Tiempo Regular
-    markets["Ganador (1X2)"] = [
-        (f"Gana {home}", mk.get("Gana local", 0)),
-        ("Empate", mk.get("Empate", 0)),
-        (f"Gana {away}", mk.get("Gana visita", 0))
-    ]
-    
-    # Doble Oportunidad
     p_h, p_d, p_a = mk.get("Gana local", 0), mk.get("Empate", 0), mk.get("Gana visita", 0)
-    markets["Doble Oportunidad"] = [
-        (f"{home} o Empate", p_h + p_d),
-        (f"{away} o Empate", p_a + p_d),
-        (f"{home} o {away}", p_h + p_a)
-    ]
+    markets["Doble Oportunidad"] = [(f"{home} o Empate", p_h + p_d), (f"{away} o Empate", p_a + p_d), (f"{home} o {away}", p_h + p_a)]
     
-    # 1ra Mitad (Se asume que la 1ra mitad tiene ~45% de los goles del partido)
-    lh_1h = lh * 0.45
-    la_1h = la * 0.45
-    M = 6 # Matriz más pequeña para 1ra mitad
-    mat_1h = [[pmf(i, lh_1h) * pmf(j, la_1h) for j in range(M)] for i in range(M)]
-    ph_1h = sum(mat_1h[i][j] for i in range(M) for j in range(M) if i > j)
-    pd_1h = sum(mat_1h[i][i] for i in range(M))
-    pa_1h = sum(mat_1h[i][j] for i in range(M) for j in range(M) if i < j)
-    s_1h = ph_1h + pd_1h + pa_1h
-    markets["1ra Mitad (1X2)"] = [
-        (f"Gana {home}", ph_1h / s_1h),
-        ("Empate", pd_1h / s_1h),
-        (f"Gana {away}", pa_1h / s_1h)
-    ]
-    
-    # Goles Total (Over/Under)
     tot = lh + la
-    markets["Total de Goles"] = [
-        ("Más de 1.5", p_over_poisson(tot, 1.5)),
-        ("Más de 2.5", p_over_poisson(tot, 2.5)),
-        ("Más de 3.5", p_over_poisson(tot, 3.5)),
-        ("Menos de 1.5", 1 - p_over_poisson(tot, 1.5)),
-        ("Menos de 2.5", 1 - p_over_poisson(tot, 2.5)),
-    ]
+    markets["Total de Goles"] = [("Más de 1.5", p_over_poisson(tot, 1.5)), ("Más de 2.5", p_over_poisson(tot, 2.5)), ("Más de 3.5", p_over_poisson(tot, 3.5)), ("Menos de 1.5", 1 - p_over_poisson(tot, 1.5)), ("Menos de 2.5", 1 - p_over_poisson(tot, 2.5))]
     
-    # Multigoles / Ambos Marcan
     p_ambos = (1 - pmf(0, lh)) * (1 - pmf(0, la))
-    markets["Multigoles (Ambos Marcan)"] = [
-        ("Sí", p_ambos),
-        ("No", 1 - p_ambos)
-    ]
+    markets["Multigoles (Ambos Marcan)"] = [("Sí", p_ambos), ("No", 1 - p_ambos)]
     
-    # Córners
     h_c, a_c = h_stats.get("corners", 5.0), a_stats.get("corners", 4.5)
     tot_c = h_c + a_c
+    markets["Total de Córners"] = [("Más de 8.5", p_over_poisson(tot_c, 8.5)), ("Más de 9.5", p_over_poisson(tot_c, 9.5)), ("Más de 10.5", p_over_poisson(tot_c, 10.5)), ("Menos de 10.5", 1 - p_over_poisson(tot_c, 10.5))]
     
-    markets["Total de Córners"] = [
-        ("Más de 8.5", p_over_poisson(tot_c, 8.5)),
-        ("Más de 9.5", p_over_poisson(tot_c, 9.5)),
-        ("Más de 10.5", p_over_poisson(tot_c, 10.5)),
-        ("Menos de 10.5", 1 - p_over_poisson(tot_c, 10.5)),
-    ]
-    
-    # Córners Par/Impar (Se basa en la probabilidad de que el partido acabe en un número específico)
-    # Como Poisson es asimétrico, calculamos la suma de pares vs impares hasta 30.
     p_par = sum(pmf(i, tot_c) for i in range(0, 30, 2))
-    markets["Córners Par/Impar"] = [
-        ("Par", p_par),
-        ("Impar", 1 - p_par)
-    ]
-    
-    # Córners por Equipo (Local)
-    markets[f"Córners de {home}"] = [
-        ("Más de 4.5", p_over_poisson(h_c, 4.5)),
-        ("Más de 5.5", p_over_poisson(h_c, 5.5)),
-    ]
-    
-    # Córners por Equipo (Visita)
-    markets[f"Córners de {away}"] = [
-        ("Más de 3.5", p_over_poisson(a_c, 3.5)),
-        ("Más de 4.5", p_over_poisson(a_c, 4.5)),
-    ]
+    markets["Córners Par/Impar"] = [("Par", p_par), ("Impar", 1 - p_par)]
 
     return markets
 
+# ===== IA PARA JUSTIFICAR MERCADOS =====
+def analyze_markets_with_ai(home, away, markets_dict, h_stats, a_stats):
+    """La IA lee los números calculados por Poisson y da su veredicto."""
+    
+    # Formatear los mercados a texto para pasárselos a la IA
+    texto_mercados = ""
+    for titulo, opciones in markets_dict.items():
+        texto_mercados += f"- {titulo}: "
+        texto_mercados += ", ".join([f"{nom} ({prob*100:.1f}%)" for nom, prob in opciones])
+        texto_mercados += "\n"
+
+    prompt = f"""
+    Eres un analista experto en apuestas deportivas. Analiza el partido {home} vs {away}.
+    
+    Estos son los datos estadísticos y las probabilidades calculadas por un modelo matemático:
+    - Córners promedio de {home}: {h_stats.get('corners', 'N/A')}
+    - Córners promedio de {away}: {a_stats.get('corners', 'N/A')}
+    - Goles esperados (xG): {h_stats.get('xg', 'N/A')} vs {a_stats.get('xg', 'N/A')}
+    
+    MERCADOS DISPONIBLES Y SUS PROBABILIDADES:
+    {texto_mercados}
+    
+    Instrucciones:
+    1. Elige los 2 o 3 mercados que TÚ consideres con mejor valor (los más seguros o con mejor relación riesgo/beneficio).
+    2. Justifica tu elección en base a los datos de córners, goles o tendencias que ves.
+    3. Escribe tu respuesta en un párrafo corto, directo y en español (máximo 100 palabras).
+    """
+    try:
+        response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}], options={"temperature": 0.3})
+        return response['message']['content']
+    except Exception as e: 
+        return f"⚠️ Error IA: {e}"
+
 # =========================================================
-# GENERADOR DE PARLEYS (MATEMÁTICO)
+# GENERADORES DE PARLEYS (MATEMÁTICO Y IA)
 # =========================================================
 def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=2, max_legs=8, mode="mix", top_n=3):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
@@ -259,12 +231,8 @@ def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=
         })
 
     if not all_picks: return []
-
     filtered_picks = [p for p in all_picks if min_prob <= p["prob"] <= max_prob]
-    
-    if len(filtered_picks) < min_legs:
-        filtered_picks = sorted(all_picks, key=lambda x: -x["prob"])
-
+    if len(filtered_picks) < min_legs: filtered_picks = sorted(all_picks, key=lambda x: -x["prob"])
     filtered_picks.sort(key=lambda x: -x["prob"])
 
     by_match = defaultdict(list)
@@ -295,9 +263,6 @@ def generate_parlays(db, leagues, sport, min_prob=0.65, max_prob=0.92, min_legs=
     parlays.sort(key=lambda x: -x["combined_prob"])
     return parlays[:top_n]
 
-# =========================================================
-# GENERADOR DE PARLEYS (IA)
-# =========================================================
 def generate_parlays_ai(db, leagues, sport, min_prob=0.60, max_prob=0.95, min_legs=2, max_legs=6, mode="mix"):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     ph = ",".join("?" * len(leagues))
@@ -332,7 +297,7 @@ PARTIDOS DISPONIBLES:
 TAREA:
 1. Elige {min_legs} a {max_legs} equipos que GANARÁN.
 2. {instruccion_liga}
-3. Justifica cada pick en 1-2 líneas mencionando datos concretos (córners o marcador esperado).
+3. Justifica cada pick en 1-2 líneas mencionando datos concretos.
 
 RESPONDE EXACTAMENTE EN ESTE FORMATO JSON:
 {{

@@ -6,7 +6,7 @@ from model import predict, analyze_with_ai, generate_parlays, generate_parlays_a
 
 st.set_page_config(page_title="PROB", page_icon="🎯", layout="wide")
 st.title("Parleysitos")
-st.caption("Predicciones y análisis multi-deporte")
+st.caption("")
 
 # Diccionario para mostrar nombres bonitos en el selector
 DEPORTES_NOMBRES = {
